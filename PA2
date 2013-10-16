@@ -1,0 +1,188 @@
+###--Programming Assignment 2 for Recommender Systems--###
+
+# Description -------------------------------------------------------------
+
+
+#####################################################################################################
+##-     This program will take user IDs from the Recommender System's data and give the top 5     -##
+##-  recommendations. After you modify the the two sections which bring in the data, just Run the -##
+##-         code from here to line 169 to load all objects, function, and methods.                -##
+#####################################################################################################
+
+
+# Part1: unweighted recommendations ---------------------------------------
+
+
+
+###--Start running code--###
+
+#Note, there are two parts you need to modify to get this to run correctly, denoted by "# TODO" section 
+
+
+##-weighted and unweghted recommendations-##
+
+#my ids:
+#3665
+#3792
+#3647
+#35
+#1632
+#Load packages
+library(reshape2)
+library(plyr)
+
+#Bring in the tags associated with each movie
+
+# TODO --------------------------------------------------------------------
+#You need to edit this part to match the location of your data
+
+tags <- read.csv(".data/movie-tags.csv",
+                 header = F)
+
+
+#Name the variables
+names(tags) <- c("movieID", "tag")
+
+#get the number of unique elements in tags and movies
+#we may need them later
+nmov <- length(unique(tags[,1]))
+ntags <- length(unique(tags[,2]))
+
+#bring in the movie ratings data
+
+# TODO --------------------------------------------------------------------
+#You need to edit this part to match the location of your data
+movieRatings <- read.csv(".data/ratings.csv", 
+                         header = F)
+
+#Create a matrix from the rating data that is easier to deal with
+ratingMatrix <- acast(movieRatings, userNo ~ movieID, value.var = "rating")
+
+#Create a matrix from the tag data that is easier to deal with
+tagMatrix <- as.data.frame(acast(data = tags, tag ~ movieID, value.var = "tag", length))
+
+#Make tage matrix binary
+binTagMatrix <- as.data.frame((tagMatrix > 0) + 0) # fast
+
+#Compute the frequency of tags for each movie and in the corpus
+#we could easily do this inside the function but I will create
+#explicit objects so I can call them later if I need to.
+docFreq <- as.data.frame(apply(binTagMatrix,1, sum))
+docFreq$tag <- rownames(docFreq)
+names(docFreq) <- c( "docFreq", "tag")
+
+docFreq$IDF <- nmov/docFreq$docFreq
+
+#compute the raw "results" and normalized "normalized" TFIDF for each movie
+results <- apply(tagMatrix, 2, function(x) x*log(docFreq$IDF, base = 10))
+normalized <- apply(results, 2, function(x) x/(sqrt(sum(x^2))))
+tNormalized <- t(normalized)
+
+
+#create a binary matrix where the values are 1 if the user rated a movie 3.5 or above
+#else 0
+binRatingMatrix <- as.data.frame((ratingMatrix >= 3.5) +0)
+binRatingMatrix[is.na(binRatingMatrix)] <- 0
+
+
+#Sums for each tag across all movies
+sum.tv <- as.data.frame(apply(normalized, 1, sum))
+names(sum.tv) <- c("tag.sum")
+
+#Create user profile vectors. Note: this is not memory efficient and the resulting object is almost 200 MB, but it works.
+profiles <- as.data.frame(normalized%*%t(binRatingMatrix))
+
+
+#name things for future calls
+row.names(profiles) <- row.names(normalized)
+
+
+names(normalized) <- names(as.character(tagMatrix))
+
+
+
+
+#create function that will compute the cosine of the angle between a user profile vector for all movie(item) vectors
+score <- function(x, user)  {as.data.frame(apply(normalized, 2, function(x) {
+  sum(profiles[,user]*x)/(sqrt(sum(profiles[,user]^2))*(sqrt(sum(x^2))))
+}))
+}
+
+#Re-initialize the binary rating matrix with NAs so we know which movies the user didn't rate
+
+binRatingMatrix <- as.data.frame((ratingMatrix >= 3.5) +0)
+
+#Function that invokes above function and gives the top 5 recomendations
+#note: this could be done with two lapply loops in one function.
+top5Recs <- function(user) {
+  user.score <- {s1 <- score(user = user, x = x)
+                 s1*ifelse(is.na(binRatingMatrix[user,]), 1, 0)
+  }
+  names(user.score) <- user
+  myRecs <- cbind(movies = row.names(user.score), user.score)
+  print(head(arrange(myRecs, desc(myRecs[,user])), n = 5))
+}
+
+
+#unweighted recommendations available now
+# user <- as.character(144)
+#runnable# top5Recs(user = user)
+
+
+
+# Part 2: weighted recommendations ----------------------------------------
+
+
+
+###--Weighted User Profile--###
+
+#Also need the ratingMatrix to have NAs here so we know what movies were not rated
+weightedRatings <- t(as.data.frame(apply(ratingMatrix, 1, function(x) x - mean(x, na.rm = T))))
+
+#turn all NAs in the weightedRatings matrix to zeros to keep computations straightforward
+weightedRatings[is.na(weightedRatings)] <- 0
+
+#Create matrix of weighted user profile vectors
+weightedProfiles <- as.data.frame(normalized%*%t(weightedRatings))
+
+#compute the cosine similarity scores for each movie
+weightedScore <- function(x, user)  {as.data.frame(apply(normalized, 2, function(x) {
+  sum(weightedProfiles[,user]*x)/(sqrt(sum(weightedProfiles[,user]^2))*(sqrt(sum(x^2))))
+}))
+}
+
+
+#Get the scores for a paticular user
+userWeighted <- as.data.frame({s2 <- weightedScore(user = user, x = x)
+                 as.matrix(s2*ifelse(is.na(binRatingMatrix[user,]), 1, 0))
+})
+
+#Function to get the top 5 weighted recommendations for a particular user
+top5WtdRecs <- function(user) {
+  userWeighted <- as.data.frame({s2 <- weightedScore(user = user, x = x)
+                                 as.matrix(s2*ifelse(is.na(binRatingMatrix[user,]), 1, 0))
+  })
+  names(userWeighted) <- user
+  myWtdRecs <- cbind(movies = row.names(userWeighted), userWeighted)
+  print(head(arrange(myWtdRecs, desc(myWtdRecs[,user])), n = 5))
+} 
+
+###--Stop running code--###
+
+
+#Note once all code is compiled one can just use the top5WtdRecs and top5recs functions to get the answers.
+#Requires 500 MB of unused memory (Rstudio), but it runs pretty fast once compiled.
+#3665
+#3792
+#3647
+#35
+#1632
+user <- as.character(1632)
+top5Recs(user = user)
+top5WtdRecs(user = user)
+
+or, we can do it in a for loop
+
+users <- paste(c(3665,3792,3647,35,1632))
+for (i in users) top5Recs(user = i)
+for (i in users) top5WtdRecs(user = i)
